@@ -159,7 +159,7 @@ class RemoteShell(ShellMixin):
     def __init__(self, address, password=None, username=None,
                  private_key=None, key_filename=None, port=None,
                  timeout=None, gateway=None, options=None, interactive=False,
-                 **kwargs):
+                 protocol='ssh', **kwargs):
         """An interface for executing shell commands on remote machines.
 
         :param str host:        The ip address or host name of the server
@@ -189,11 +189,10 @@ class RemoteShell(ShellMixin):
             LOG.warning("Satori RemoteClient received unrecognized "
                         "keyword arguments: %s", kwargs.keys())
 
-        self._client = ssh.connect(
-            address, password=password, username=username,
-            private_key=private_key, key_filename=key_filename, port=port,
-            timeout=timeout, gateway=gateway, options=options,
-            interactive=interactive)
+        if protocol == 'psexec':
+            self._client = pse.connect(address, **kwargs)
+        else:
+            self._client = ssh.connect(address, **kwargs)
         self.host = self._client.host
         self.port = self._client.port
 
