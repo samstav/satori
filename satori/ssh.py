@@ -224,12 +224,16 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         """Set up client and connect to target."""
         self.load_system_host_keys()
 
-        if self.proxy:
-            # lazy load
-            self.sock = self._get_proxy_socket(self.proxy)
-
         if self.options.get('StrictHostKeyChecking') in (False, "no"):
             self.set_missing_host_key_policy(AcceptMissingHostKey())
+
+        if self.proxy:
+            # lazy load
+            if not self.proxy.get_transport():
+                self.proxy.connect()
+            self.sock = self.proxy.get_transport().open_channel(
+                'direct-tcpip', (self.host, self.port), ('', 0))
+
 
         return super(SSH, self).connect(
             self.host,
@@ -417,60 +421,6 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         finally:
             self.close()
 
-    def _get_proxy_socket(self, proxy):
-        """Return a wrapped subprocess running ProxyCommand-driven programs.
-
-        Create a new CommandProxy instance.
-        Can be created from an existing SSH instance.
-        For proxy clients, please specify a private key filename.
-
-        To use an ssh proxy, you must use an SSH Key,
-        since a ProxyCommand cannot be passed a password.
-        """
-        if proxy.password:
-            LOG.warning("Proxying through a client which is authorized by "
-                        "a password is not currently implemented. Please "
-                        "use an ssh key.")
-
-        proxy.load_system_host_keys()
-        if proxy.options.get('StrictHostKeyChecking') in (False, "no"):
-            proxy.set_missing_host_key_policy(AcceptMissingHostKey())
-
-        if proxy.private_key and not proxy.key_filename:
-            tempkeyfile = tempfile.NamedTemporaryFile(
-                mode='w+', prefix=TEMPFILE_PREFIX,
-                dir=os.path.expanduser('~/'), delete=True)
-            tempkeyfile.write(proxy.private_key)
-            proxy.key_filename = tempkeyfile.name
-
-        pxd = {
-            'bastion': proxy.host,
-            'user': proxy.username,
-            'port': '-p %s' % proxy.port,
-            'options': ('-o ConnectTimeout=%s ' % proxy.timeout),
-            'target_host': self.host,
-            'target_port': self.port,
-        }
-        proxycommand = "ssh {options} -A {user}@{bastion} "
-
-        if proxy.key_filename:
-            proxy.key_filename = os.path.expanduser(proxy.key_filename)
-            proxy.key_filename = os.path.abspath(proxy.key_filename)
-            pxd.update({'identity': '-i %s' % proxy.key_filename})
-            proxycommand += "{identity} "
-
-        if proxy.options:
-            for key, val in sorted(proxy.options.items()):
-                if isinstance(val, bool):
-                    # turns booleans into `ssh -o` compat "yes" or "no"
-                    if val is True:
-                        val = "yes"
-                    if val is False:
-                        val = "no"
-                pxd['options'] += '-o %s=%s ' % (key, val)
-
-        proxycommand += "nc {target_host} {target_port}"
-        return paramiko.ProxyCommand(proxycommand.format(**pxd))
 
 # Share SSH.__init__'s docstring
 connect.__doc__ = SSH.__init__.__doc__

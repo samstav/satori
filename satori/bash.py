@@ -151,7 +151,7 @@ class RemoteShell(ShellMixin):
 
     """Execute shell commands on a remote machine over ssh."""
 
-    def __init__(self, address, **kwargs):
+    def __init__(self, address, protocol='ssh', **kwargs):
         """An interface for executing shell commands on remote machines.
 
         :param str host:        The ip address or host name of the server
@@ -177,16 +177,19 @@ class RemoteShell(ShellMixin):
                                 is equivalent.
         :keyword interactive:   If true, prompt for password if missing.
         """
-        self.sshclient = ssh.connect(address, **kwargs)
-        self.host = self.sshclient.host
-        self.port = self.sshclient.port
+        if protocol == 'psexec':
+            self._client = pse.connect(address, **kwargs)
+        else:
+            self._client = ssh.connect(address, **kwargs)
+        self.host = self._client.host
+        self.port = self._client.port
 
     @property
     def platform_info(self):
         """Return distro, version, architecture."""
-        return self.sshclient.platform_info
+        return self._client.platform_info
 
     def execute(self, command, wd=None, with_exit_code=None):
         """Execute given command over ssh."""
-        return self.sshclient.remote_execute(
+        return self._client.remote_execute(
             command, wd=wd, with_exit_code=with_exit_code)
