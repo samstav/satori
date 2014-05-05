@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 import tempfile
 import os
 import socket
@@ -11,21 +14,11 @@ import re
 from satori.ssh import SSH
 import tunnel
 
-
 class PSE(object):
 
-    #@property
-    #def prompt_pattern(self):
-    #    return self._prompt_pattern
-    #@prompt_pattern.setter
-    #def prompt_pattern(self, value):
-    #    self.
-
     _prompt_pattern = re.compile(r'^[a-zA-Z]:\\.*>$', re.MULTILINE)
-    
-    
 
-    def __init__(self, host=None, password=None, username="Administrator", port=445, timeout=10, bastion=None):
+    def __init__(self, host=None, password=None, username="Administrator", port=445, timeout=10, gateway=None):
         self.password = password
         self.host = host
         self.port = port
@@ -38,11 +31,11 @@ class PSE(object):
         
         self._command = "nice python psexec.py -port %s %s:%s@%s 'c:\\Windows\\sysnative\\cmd'"
         self._output = ''
-        self.bastion = bastion
+        self.gateway = gateway
 
-        if bastion:
-            if not isinstance(self.bastion, SSH):
-                raise TypeError("'bastion' must be a satori.ssh.SSH instance. "
+        if gateway:
+            if not isinstance(self.gateway, SSH):
+                raise TypeError("'gateway' must be a satori.ssh.SSH instance. "
                                 "( instances of this tupe are returned by"
                                 "satori.ssh.connect() )")
 
@@ -54,7 +47,7 @@ class PSE(object):
             pass
 
     def create_tunnel(self):
-        self.ssh_tunnel = tunnel.connect(self.host, self.port, self.bastion)
+        self.ssh_tunnel = tunnel.connect(self.host, self.port, self.gateway)
         self._orig_host = self.host
         self._orig_port = self.port
         self.host, self.port = self.ssh_tunnel.address
@@ -75,7 +68,7 @@ class PSE(object):
             return False
 
     def connect(self):
-        if self.bastion:
+        if self.gateway:
             self.create_tunnel()
         self._substituted_command = self._command % (self.port, self.username, self.password, self.host)
         self._process = subprocess.Popen(shlex.split(self._substituted_command), stdout=self._file_write, 
@@ -89,21 +82,22 @@ class PSE(object):
         
     def close(self):
         stdout,stderr = self._process.communicate('exit')
-        if self.bastion:
+        if self.gateway:
             self.shutdown_tunnel()
 
-    def execute(self, command):
+    def remote_execute(self, command):
         self._process.stdin.write('%s\n' % command)
         return "\n".join(self._get_output().splitlines()[:-1]).strip()
 
     def _get_output(self):
         tmp_out = ''
         while tmp_out == '':
+            eventlet.sleep(0.1)
             self._file_read.seek(0,1)
             tmp_out += self._file_read.read()
         stdout = tmp_out
         while not tmp_out == '':
-            time.sleep(0.1)
+            eventlet.sleep(0.1)
             self._file_read.seek(0,1)
             tmp_out = self._file_read.read()
             stdout += tmp_out

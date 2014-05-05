@@ -102,7 +102,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
     # pylint: disable=R0913
     def __init__(self, host, password=None, username="root",
                  private_key=None, key_filename=None, port=22,
-                 timeout=20, proxy=None, options=None, interactive=False):
+                 timeout=20, gateway=None, options=None, interactive=False):
         """Create an instance of the SSH class.
 
         :param str host:        The ip address or host name of the server
@@ -116,7 +116,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         :param port:            tcp/ip port to use (defaults to 22)
         :param float timeout:   an optional timeout (in seconds) for the
                                 TCP connection
-        :param socket proxy:    an existing SSH instance to use
+        :param socket gateway:    an existing SSH instance to use
                                 for proxying
         :param dict options:    A dictionary used to set ssh options
                                 (when proxying).
@@ -137,13 +137,13 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         self.timeout = timeout
         self._platform_info = None
         self.options = options or {}
-        self.proxy = proxy
+        self.gateway = gateway
         self.sock = None
         self.interactive = interactive
 
-        if self.proxy:
-            if not isinstance(self.proxy, SSH):
-                raise TypeError("'proxy' must be a satori.ssh.SSH instance. "
+        if self.gateway:
+            if not isinstance(self.gateway, SSH):
+                raise TypeError("'gateway' must be a satori.ssh.SSH instance. "
                                 "( instances of this type are returned by "
                                 "satori.ssh.connect() )")
 
@@ -227,11 +227,11 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         if self.options.get('StrictHostKeyChecking') in (False, "no"):
             self.set_missing_host_key_policy(AcceptMissingHostKey())
 
-        if self.proxy:
+        if self.gateway:
             # lazy load
-            if not self.proxy.get_transport():
-                self.proxy.connect()
-            self.sock = self.proxy.get_transport().open_channel(
+            if not self.gateway.get_transport():
+                self.gateway.connect()
+            self.sock = self.gateway.get_transport().open_channel(
                 'direct-tcpip', (self.host, self.port), ('', 0))
 
 
