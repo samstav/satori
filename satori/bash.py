@@ -88,6 +88,9 @@ class ShellMixin(object):
 
         Uses the platform_info property.
         """
+        if hasattr(self, '_client'):
+            if isinstance(self._client, pse.PSE):
+                return True
         if not self.platform_info['dist']:
             raise errors.UndeterminedPlatform(
                 'Unable to determine whether the system is Windows based.')
