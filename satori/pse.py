@@ -98,7 +98,7 @@ class PSE(object):
             self._file_read.seek(0,1)
             tmp_out += self._file_read.read()
         stdout = tmp_out
-        while not tmp_out == '':
+        while not tmp_out == '' and not self._prompt_pattern.findall(stdout):
             eventlet.sleep(0.1)
             self._file_read.seek(0,1)
             tmp_out = self._file_read.read()
