@@ -82,6 +82,9 @@ class ShellMixin(object):
 
     def is_windows(self):
         """Indicate whether the system is Windows based."""
+        if hasattr(self, '_client'):
+            if isinstance(self._client, pse.PSE):
+                return True
         if not self.platform_info['dist']:
             raise errors.UndeterminedPlatform(
                 'Unable to determine whether the system is Windows based.')
@@ -188,6 +191,12 @@ class RemoteShell(ShellMixin):
     def platform_info(self):
         """Return distro, version, architecture."""
         return self._client.platform_info
+
+    def connect(self):
+        return self._client.connect()
+
+    def test_connection(self):
+        return self._client.test_connection()
 
     def execute(self, command, wd=None, with_exit_code=None):
         """Execute given command over ssh."""
