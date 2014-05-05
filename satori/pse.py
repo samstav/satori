@@ -85,7 +85,9 @@ class PSE(object):
         if self.gateway:
             self.shutdown_tunnel()
 
-    def remote_execute(self, command):
+    def remote_execute(self, command, powershell=True):
+        if powershell:
+            command = 'powershell -EncodedCommand %s' % self._posh_encode(command)
         self._process.stdin.write('%s\n' % command)
         return "\n".join(self._get_output().splitlines()[:-1]).strip()
 
