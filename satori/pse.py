@@ -12,7 +12,12 @@ import base64
 import re
 
 from satori.ssh import SSH
-import tunnel
+from satori import tunnel
+
+
+class SubprocessError(Exception):
+    pass
+
 
 class PSE(object):
 
@@ -24,12 +29,13 @@ class PSE(object):
         self.port = port
         self.username = username
         self.timeout = timeout
+        self._connected = False
 
         #creating temp file to talk to _process with
         self._file_write = tempfile.NamedTemporaryFile()
         self._file_read = open(self._file_write.name, 'r')
         
-        self._command = "nice python psexec.py -port %s %s:%s@%s 'c:\\Windows\\sysnative\\cmd'"
+        self._command = "nice python %s/psexec.py -port %s %s:%s@%s 'c:\\Windows\\sysnative\\cmd'"
         self._output = ''
         self.gateway = gateway
 
@@ -68,41 +74,75 @@ class PSE(object):
             return False
 
     def connect(self):
+        if self._connected and self._process:
+            if self._process.poll() is None:
+                return
+            else:
+                self._process.wait()
+                if self.gateway:    
+                    self.shutdown_tunnel()
         if self.gateway:
             self.create_tunnel()
-        self._substituted_command = self._command % (self.port, self.username, self.password, self.host)
+        self._substituted_command = self._command % (os.path.dirname(__file__), 
+                                                     self.port, 
+                                                     self.username, 
+                                                     self.password, 
+                                                     self.host)
         self._process = subprocess.Popen(shlex.split(self._substituted_command), stdout=self._file_write, 
                                          stderr=subprocess.STDOUT, 
                                          stdin=subprocess.PIPE,
                                          close_fds=True,
                                          bufsize=0)
-        while not self._prompt_pattern.findall(self._output):
-            self._get_output()
-        print self._prompt_pattern.findall(self._output)
+        output = ''
+        while not self._prompt_pattern.findall(output):
+            output += self._get_output()
+        self._connected = True
         
     def close(self):
         stdout,stderr = self._process.communicate('exit')
         if self.gateway:
             self.shutdown_tunnel()
 
-    def remote_execute(self, command, powershell=True):
+    def remote_execute(self, command, powershell=True, retry=0):
+        self.connect()
         if powershell:
             command = 'powershell -EncodedCommand %s' % self._posh_encode(command)
         self._process.stdin.write('%s\n' % command)
-        return "\n".join(self._get_output().splitlines()[:-1]).strip()
+        try:
+            output =  self._get_output()
+            output = "\n".join(output.splitlines()[:-1]).strip()  
+            return output
+        except SubprocessError as exc:
+            if not retry:
+                raise
+            else:
+                return self.remote_execute(command, powershell=powershell, retry=retry - 1)
 
-    def _get_output(self):
+    def _get_output(self, prompt_expected=True):
         tmp_out = ''
         while tmp_out == '':
-            eventlet.sleep(0.1)
             self._file_read.seek(0,1)
             tmp_out += self._file_read.read()
+            # leave loop if underlying process has a return code
+            # obviously meaning that it has terminated
+            if not self._process.poll() is None:
+                raise SubprocessError("subprocess with pid: %s has terminated unexpectedly with return code: %s"
+                                % (self._process.pid, self._process.poll()))
+            eventlet.sleep(0.2)
         stdout = tmp_out
-        while not tmp_out == '' and not self._prompt_pattern.findall(stdout):
-            eventlet.sleep(0.1)
+        #print stdout
+        while not tmp_out == '' or \
+              not self._prompt_pattern.findall(stdout):
             self._file_read.seek(0,1)
             tmp_out = self._file_read.read()
             stdout += tmp_out
+            # leave loop if underlying process has a return code
+            # obviously meaning that it has terminated
+            if not self._process.poll() is None:
+                raise SubprocessError("subprocess with pid: %s has terminated unexpectedly with return code: %s"
+                                % (self._process.pid, self._process.poll()))
+            eventlet.sleep(0.2)
+            #print tmp_out
         self._output += stdout
         stdout = stdout.replace('\r', '').replace('\x08','')
         return stdout
