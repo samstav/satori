@@ -23,6 +23,7 @@ import shlex
 import subprocess
 
 from satori import errors
+from satori import pse
 from satori import ssh
 from satori import utils
 
@@ -154,7 +155,10 @@ class RemoteShell(ShellMixin):
 
     """Execute shell commands on a remote machine over ssh."""
 
-    def __init__(self, address, protocol='ssh', **kwargs):
+    def __init__(self, address, password=None, username=None,
+                 private_key=None, key_filename=None, port=None,
+                 timeout=None, gateway=None, options=None, interactive=False,
+                 protocol='ssh', **kwargs):
         """An interface for executing shell commands on remote machines.
 
         :param str host:        The ip address or host name of the server
@@ -168,7 +172,7 @@ class RemoteShell(ShellMixin):
         :param port:            tcp/ip port to use (defaults to 22)
         :param float timeout:   an optional timeout (in seconds) for the
                                 TCP connection
-        :param socket proxy:    an existing SSH instance to use
+        :param socket gateway:  an existing SSH instance to use
                                 for proxying
         :param dict options:    A dictionary used to set ssh options
                                 (when proxying).
@@ -180,10 +184,18 @@ class RemoteShell(ShellMixin):
                                 is equivalent.
         :keyword interactive:   If true, prompt for password if missing.
         """
+        if kwargs:
+            LOG.warning("Satori RemoteClient received unrecognized "
+                        "keyword arguments: %s", kwargs.keys())
+
         if protocol == 'psexec':
+            raise NotImplementedError("No windows support quite yet.")
             self._client = pse.connect(address, **kwargs)
         else:
-            self._client = ssh.connect(address, **kwargs)
+            self._client = ssh.connect(address, password=password, username=username,
+                                       private_key=private_key, key_filename=key_filename,
+                                       port=port, timeout=timeout, gateway=gateway,
+                                       options=options, interactive=interactive)
         self.host = self._client.host
         self.port = self._client.port
 
@@ -202,3 +214,6 @@ class RemoteShell(ShellMixin):
         """Execute given command over ssh."""
         return self._client.remote_execute(
             command, wd=wd, with_exit_code=with_exit_code)
+
+    def close(self):
+        return self._client.close()
