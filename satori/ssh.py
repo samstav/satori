@@ -309,6 +309,11 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         finally:
             self.close()
 
+    def close(self):
+        if self.gateway:
+            self.gateway.close()
+        return super(SSH, self).close()
+
     def _handle_tty_required(self, results, get_pty):
         """Determine whether the result implies a tty request."""
         if any(m in str(k) for m in TTY_REQUIRED for k in results.values()):
@@ -398,10 +403,10 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
             LOG.debug("STDOUT from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
-                      results['stdout'])
+                      unicode(results['stdout'][:5000] + '...', errors='replace'))
             LOG.debug("STDERR from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
-                      results['stderr'])
+                      unicode(results['stderr'][:5000] + '...', errors='replace'))
             exit_code = chan.recv_exit_status()
 
             if with_exit_code:
