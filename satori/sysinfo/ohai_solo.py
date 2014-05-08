@@ -69,12 +69,13 @@ def system_info(client):
     if client.is_windows():
         return
     else:
-        output = client.execute("sudo -i ohai-solo")
+        output = client.execute("sudo -i unset GEM_CACHE GEM_HOME GEM_PATH "
+                                "&& sudo ohai-solo")
         not_found_msgs = ["command not found", "Could not find ohai"]
         if any(m in k for m in not_found_msgs
                for k in list(output.values()) if isinstance(k, six.string_types)):
             LOG.warning("SystemInfoCommandMissing on host: [%s]", client.host)
-            raise errors.SystemInfoCommandMissing("ohai-solo missing on %s",
+            raise errors.SystemInfoCommandMissing("ohai-solo missing on %s" %
                                                   client.host)
         unicode_output = unicode(output['stdout'], errors='replace')
         try:
