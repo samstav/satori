@@ -169,10 +169,18 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
             command = 'echo -e """%s""" | python' % platform_command
             output = self.remote_execute(command)
             stdout = re.split('\n|\r\n', output['stdout'])[-1].strip()
-            plat = ast.literal_eval(stdout)
+            if stdout:
+                try:
+                    plat = ast.literal_eval(stdout)
+                except SyntaxError as exc:
+                    plat = {'dist': 'unknown'}
+                    LOG.warning("Error parsing response from host '%s': %s",
+                                self.host, output, exc_info=exc)
+            else:
+                plat = {'dist': 'unknown'}
+                LOG.warning("Blank response from host '%s': %s", self.host,
+                            output, exc_info=exc)
             self._platform_info = plat
-
-        LOG.debug("Remote platform info: %s", self._platform_info)
         return self._platform_info
 
     def connect_with_host_keys(self):

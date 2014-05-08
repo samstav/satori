@@ -94,13 +94,19 @@ def install_remote(client):
     LOG.info("Installing (or updating) ohai-solo on device %s at %s:%d",
              client.host, client.host, client.port)
 
-    if client.is_windows():
+    # Check is it is a windows box, but fail safely to Linux
+    is_windows = False
+    try:
+        is_windows = client.is_windows()
+    except Exception:
+        pass
+    if is_windows:
         powershell_command = ('[scriptblock]::Create((New-Object -TypeName '
                               'System.Net.WebClient).DownloadString("http://'
                               '12d9673e1fdcef86bf0a-162ee3689e7f81d29099'
                               '4e20942dc617.r59.cf3.rackcdn.com/deploy.ps1"))'
                               '.Invoke()')
-        output = self.execute(
+        output = client.execute(
             'powershell -EncodedCommand %s'
             % client._client._posh_encode(powershell_command))
         while not client._prompt_pattern.findall(output):
