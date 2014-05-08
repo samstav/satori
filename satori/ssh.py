@@ -160,7 +160,6 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         Requires >= Python 2.4 on remote system.
         """
         if not self._platform_info:
-
             platform_command = "import platform,sys\n"
             platform_command += utils.get_source_definition(
                 utils.get_platform_info)
@@ -418,10 +417,12 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
             LOG.debug("STDOUT from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
-                      unicode(results['stdout'][:5000] + '...', errors='replace'))
+                      unicode(results['stdout'][:5000] + '...',
+                      errors='replace'))
             LOG.debug("STDERR from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
-                      unicode(results['stderr'][:5000] + '...', errors='replace'))
+                      unicode(results['stderr'][:5000] + '...',
+                      errors='replace'))
             exit_code = chan.recv_exit_status()
 
             if with_exit_code:
