@@ -1,6 +1,7 @@
 import eventlet
 eventlet.monkey_patch()
 
+import ast
 import tempfile
 import os
 import socket
@@ -15,21 +16,33 @@ from satori.ssh import SSH
 from satori import tunnel
 
 
+def connect(*args, **kwargs):
+    try:
+        return PSE.get_client(*args, **kwargs)
+    except:
+        print "failed"
+
 class SubprocessError(Exception):
     pass
 
 
 class PSE(object):
 
+
     _prompt_pattern = re.compile(r'^[a-zA-Z]:\\.*>$', re.MULTILINE)
 
-    def __init__(self, host=None, password=None, username="Administrator", port=445, timeout=10, gateway=None):
+    def __init__(self, host, password=None, username="Administrator", port=445, timeout=10, gateway=None):
+        """
+        docstring
+        :param str host:    host to connect to
+        """
         self.password = password
         self.host = host
         self.port = port
         self.username = username
         self.timeout = timeout
         self._connected = False
+        self._platform_info = None
 
         #creating temp file to talk to _process with
         self._file_write = tempfile.NamedTemporaryFile()
@@ -42,7 +55,7 @@ class PSE(object):
         if gateway:
             if not isinstance(self.gateway, SSH):
                 raise TypeError("'gateway' must be a satori.ssh.SSH instance. "
-                                "( instances of this tupe are returned by"
+                                "( instances of this type are returned by"
                                 "satori.ssh.connect() )")
 
 
@@ -52,6 +65,21 @@ class PSE(object):
         except ValueError:
             pass
 
+    @classmethod
+    def get_client(cls, *args, **kwargs):
+        return cls(*args, **kwargs)
+
+    @property
+    def platform_info(self):
+        if not self._platform_info:
+            stdout = self.remote_execute('Get-WmiObject Win32_OperatingSystem | ' \
+                                         'select @{n="dist";e={$_.Caption.Trim()}},' \
+                                         '@{n="version";e={$_.Version}},@{n="arch";e={$_.OSArchitecture}} | ' \
+                                         ' ConvertTo-Json -Compress', retry = 3)
+            self._platform_info = ast.literal_eval(stdout)
+
+        return self._platform_info
+    
     def create_tunnel(self):
         self.ssh_tunnel = tunnel.connect(self.host, self.port, self.gateway)
         self._orig_host = self.host
@@ -149,20 +177,3 @@ class PSE(object):
         
     def _posh_encode(self, command):
         return base64.b64encode(command.encode('utf-16')[2:])
-
-    def install_ohai_solo(self):
-        powershell_command = '[scriptblock]::Create((New-Object -TypeName System.Net.WebClient)'\
-                             '.DownloadString("http://12d9673e1fdcef86bf0a-162ee3689e7f81d29099'\
-                             '4e20942dc617.r59.cf3.rackcdn.com/deploy.ps1")).Invoke()'
-        out = self.execute('powershell -EncodedCommand %s' % self._posh_encode(powershell_command))
-        while not self._prompt_pattern.findall(out):
-            out += "\n"+self._get_output()
-        out = "\n".join(out.splitlines()[:-1]).strip()
-        return out
-
-    def remove_ohai_solo(self):
-        powershell_command = 'Remove-Item -Path (Join-Path -Path $($env:PSModulePath.Split(";") '\
-                             '| Where-Object { $_.StartsWith($env:SystemRoot)}) -ChildPath "PoSh-Ohai") '\
-                             '-Recurse -Force -ErrorAction SilentlyContinue'
-        out = self.execute('powershell -EncodedCommand %s' % self._posh_encode(powershell_command))
-        return out
