@@ -2,6 +2,7 @@ import eventlet
 eventlet.monkey_patch()
 
 import ast
+import logging
 import tempfile
 import os
 import socket
@@ -14,6 +15,8 @@ import re
 
 from satori.ssh import SSH
 from satori import tunnel
+
+LOG = logging.getLogger(__name__)
 
 
 def connect(*args, **kwargs):
@@ -34,7 +37,8 @@ class PSE(object):
 
     _prompt_pattern = re.compile(r'^[a-zA-Z]:\\.*>$', re.MULTILINE)
 
-    def __init__(self, host, password=None, username="Administrator", port=445, timeout=10, gateway=None):
+    def __init__(self, host, password=None, username="Administrator",
+                 port=445, timeout=10, gateway=None, **kwargs):
         """Create an instance of the PSE class
 
         :param str host:        The ip address or host name of the server
@@ -54,6 +58,7 @@ class PSE(object):
         self.timeout = timeout
         self._connected = False
         self._platform_info = None
+        self._process = None
 
         #creating temp file to talk to _process with
         self._file_write = tempfile.NamedTemporaryFile()
@@ -161,11 +166,24 @@ class PSE(object):
         """Close the psexec connection by sending 'exit' to the subprocess.
         This will cleanly exit psexec (i.e. stop and uninstall the service and delete the files)
         """
-        stdout,stderr = self._process.communicate('exit')
-        if self.gateway:
-            self.shutdown_tunnel()
+        try:
+            stdout,stderr = self._process.communicate('exit')
+        except Exception as exc:
+            LOG.error("ERROR: Failed to close %s: %s", self, str(exc))
+            del exc
+        try:
+            if self.gateway:
+                self.shutdown_tunnel()
+                self.gateway.close()
+        except Exception as exc:
+            LOG.error("ERROR: Failed to close gateway %s: %s", self.gateway, str(exc))
+            del exc
+        finally:
+            if self._process:
+                LOG.warning("Killing process: %s", self._process)
+                subprocess.call(['pkill', '-STOP', '-P', str(self._process.pid)])
 
-    def remote_execute(self, command, powershell=True, retry=0):
+    def remote_execute(self, command, powershell=True, retry=0, **kwargs):
         """Execute a command on a remote host
 
         :param command:     Command to be executed
@@ -215,7 +233,7 @@ class PSE(object):
             stdout += tmp_out
             # leave loop if underlying process has a return code
             # obviously meaning that it has terminated
-            if not self._process.poll() is None:
+            if not (self._process.poll() is None):
                 raise SubprocessError("subprocess with pid: %s has terminated unexpectedly with return code: %s"
                                 % (self._process.pid, self._process.poll()))
             eventlet.sleep(wait/1000)

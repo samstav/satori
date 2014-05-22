@@ -34,7 +34,7 @@ class ShellMixin(object):
 
     """Handle platform detection and define execute command."""
 
-    def execute(self, command, wd=None, with_exit_code=None):
+    def execute(self, command, **kwargs):
         """Execute a (shell) command on the target.
 
         :param command:         Shell command to be executed
@@ -126,7 +126,7 @@ class LocalShell(ShellMixin):
             self._platform_info = utils.get_platform_info()
         return self._platform_info
 
-    def execute(self, command, wd=None, with_exit_code=None):
+    def execute(self, command, **kwargs):
         """Execute a command (containing no shell operators) locally.
 
         :param command:         Shell command to be executed.
@@ -140,6 +140,8 @@ class LocalShell(ShellMixin):
         :returns:               A dict with stdin, stdout, and
                                 (optionally) the exit code.
         """
+        wd = kwargs.get('wd')
+        with_exit_code = kwargs.get('with_exit_code')
         spipe = subprocess.PIPE
 
         cmd = shlex.split(command)
@@ -194,8 +196,8 @@ class RemoteShell(ShellMixin):
                         "keyword arguments: %s", kwargs.keys())
 
         if protocol == 'psexec':
-            raise NotImplementedError("No windows support quite yet.")
-            self._client = pse.connect(address, **kwargs)
+            self._client = pse.connect(address, password=password, username=username,
+                                       port=port, timeout=timeout, gateway=gateway)
         else:
             self._client = ssh.connect(address, password=password, username=username,
                                        private_key=private_key, key_filename=key_filename,

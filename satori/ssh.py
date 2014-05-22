@@ -369,7 +369,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         return False
 
     def remote_execute(self, command, with_exit_code=False,
-                       get_pty=False, wd=None):
+                       get_pty=False, wd=None, **kwargs):
         """Execute an ssh command on a remote host.
 
         Tries cert auth first and falls back

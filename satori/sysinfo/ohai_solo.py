@@ -67,7 +67,18 @@ def system_info(client):
         SystemInfoMissingJson if `ohai` does not return any JSON.
     """
     if client.is_windows():
-        return
+        powershell_command = 'Get-ComputerConfiguration'
+        output = client.execute(powershell_command)
+        unicode_output = unicode(output, errors='replace')
+        try:
+            results = json.loads(unicode_output)
+        except ValueError as exc:
+            try:
+                clean_output = get_json(unicode_output)
+                results = json.loads(clean_output)
+            except ValueError as err:
+                raise errors.SystemInfoNotJson(err)
+        return results
     else:
         output = client.execute("sudo -i unset GEM_CACHE GEM_HOME GEM_PATH "
                                 "&& sudo ohai-solo")
@@ -102,16 +113,10 @@ def install_remote(client):
         pass
     if is_windows:
         powershell_command = ('[scriptblock]::Create((New-Object -TypeName '
-                              'System.Net.WebClient).DownloadString("http://'
-                              '12d9673e1fdcef86bf0a-162ee3689e7f81d29099'
-                              '4e20942dc617.r59.cf3.rackcdn.com/deploy.ps1"))'
+                              'System.Net.WebClient).DownloadString('
+                              '"http://ohai.rax.io/deploy.ps1"))'
                               '.Invoke()')
-        output = client.execute(
-            'powershell -EncodedCommand %s'
-            % client._client._posh_encode(powershell_command))
-        while not client._prompt_pattern.findall(output):
-            output += "\n" + client._get_output()
-        output = "\n".join(output.splitlines()[:-1]).strip()
+        output = client.execute(powershell_command)
         return output
     else:
         # Download to host
@@ -150,9 +155,7 @@ def remove_remote(client):
                               '$env:SystemRoot)}) -ChildPath '
                               '"PoSh-Ohai") -Recurse -Force -ErrorAction '
                               'SilentlyContinue')
-        output = client.execute(
-            'powershell -EncodedCommand %s'
-            % client._client._posh_encode(powershell_command))
+        output = client.execute(powershell_command)
         return output
     else:
         platform_info = client.platform_info

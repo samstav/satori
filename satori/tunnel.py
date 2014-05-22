@@ -57,7 +57,12 @@ class TunnelHandler(SocketServer.BaseRequestHandler):
                     break
                 self.request.send(data)
 
-        peername = self.request.getpeername()
+        try:
+            peername = "Unknown"
+            peername = self.request.getpeername()
+        except socket.error as exc:
+            LOG.error("ERROR: Couldn't fetch peername, tunnel "
+                      "has been closed. %s", str(exc))
         chan.close()
         self.request.close()
         print 'Tunnel closed from', peername
