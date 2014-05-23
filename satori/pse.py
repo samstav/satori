@@ -53,8 +53,8 @@ class PSE(object):
         """
         self.password = password
         self.host = host
-        self.port = port
-        self.username = username
+        self.port = port or 445
+        self.username = username or 'Administrator'
         self.timeout = timeout
         self._connected = False
         self._platform_info = None

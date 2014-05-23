@@ -129,10 +129,10 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         """
         self.password = password
         self.host = host
-        self.username = username
+        self.username = username or 'root'
         self.private_key = private_key
         self.key_filename = key_filename
-        self.port = port
+        self.port = port or 22
         self.timeout = timeout
         self._platform_info = None
         self.options = options or {}
