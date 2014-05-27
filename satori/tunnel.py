@@ -14,9 +14,6 @@ import paramiko
 from satori import ssh
 
 LOG = logging.getLogger(__name__)
-LOG.addHandler(logging.StreamHandler(sys.stdout))
-[h.setLevel(logging.DEBUG) for h in LOG.handlers]
-LOG.setLevel(logging.DEBUG)
 
 class TunnelServer(SocketServer.ThreadingTCPServer):
 
@@ -61,11 +58,11 @@ class TunnelHandler(SocketServer.BaseRequestHandler):
             peername = "Unknown"
             peername = self.request.getpeername()
         except socket.error as exc:
-            LOG.error("ERROR: Couldn't fetch peername, tunnel "
-                      "has been closed. %s", str(exc))
+            LOG.warning("ERROR: Couldn't fetch peername, tunnel "
+                        "has been closed. %s", str(exc))
         chan.close()
         self.request.close()
-        print 'Tunnel closed from', peername
+        LOG.info('Tunnel closed from %s', str(peername))
 
 
 class Tunnel(object):

@@ -23,8 +23,8 @@ def connect(*args, **kwargs):
     """Connect to a remote device using psexec.py"""
     try:
         return PSE.get_client(*args, **kwargs)
-    except:
-        print "failed"
+    except Exception as exc:
+        LOG.error("ERROR: pse.py failed to connect: %s", str(exc))
 
 class SubprocessError(Exception):
     """custom Exception that will be raised when the subprocess running psexec.py has exited"""
@@ -169,14 +169,14 @@ class PSE(object):
         try:
             stdout,stderr = self._process.communicate('exit')
         except Exception as exc:
-            LOG.error("ERROR: Failed to close %s: %s", self, str(exc))
+            LOG.warning("ERROR: Failed to close %s: %s", self, str(exc))
             del exc
         try:
             if self.gateway:
                 self.shutdown_tunnel()
                 self.gateway.close()
         except Exception as exc:
-            LOG.error("ERROR: Failed to close gateway %s: %s", self.gateway, str(exc))
+            LOG.warning("ERROR: Failed to close gateway %s: %s", self.gateway, str(exc))
             del exc
         finally:
             if self._process:
@@ -224,7 +224,6 @@ class PSE(object):
                                 % (self._process.pid, self._process.poll()))
             eventlet.sleep(wait/1000)
         stdout = tmp_out
-        #print stdout
         while not tmp_out == '' or \
              (not self._prompt_pattern.findall(stdout) and\
               prompt_expected):
@@ -237,7 +236,6 @@ class PSE(object):
                 raise SubprocessError("subprocess with pid: %s has terminated unexpectedly with return code: %s"
                                 % (self._process.pid, self._process.poll()))
             eventlet.sleep(wait/1000)
-            #print tmp_out
         self._output += stdout
         stdout = stdout.replace('\r', '').replace('\x08','')
         return stdout
