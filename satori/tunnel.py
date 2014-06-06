@@ -1,21 +1,44 @@
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+
+
+"""SSH tunneling module.
+
+This module exposes methods to establish an SSH tunnel (similar to ssh -L)
+"""
 import eventlet
 eventlet.monkey_patch()
 
 import logging
-import os
-import socket
 import select
-import sys
-import threading
+import socket
+#from eventlet.green
+import SocketServer
 
 from eventlet import greenthread
-from eventlet.green import SocketServer
 import paramiko
+
 from satori import ssh
+
 
 LOG = logging.getLogger(__name__)
 
+
 class TunnelServer(SocketServer.ThreadingTCPServer):
+
+    """Serve on a local ephemeral port.
+
+    Clients will connect to that port/server.
+    """
 
     daemon_threads = True
     allow_reuse_address = True
@@ -23,7 +46,13 @@ class TunnelServer(SocketServer.ThreadingTCPServer):
 
 class TunnelHandler(SocketServer.BaseRequestHandler):
 
+    """Handle forwarding of packets."""
+
     def handle(self):
+        """Only method of the Class.
+
+        This will do the forwarding of packets.
+        """
         try:
             chan = self.ssh_transport.open_channel('direct-tcpip',
                                                    self.target_address,
@@ -65,12 +94,17 @@ class TunnelHandler(SocketServer.BaseRequestHandler):
         LOG.info('Tunnel closed from %s', str(peername))
 
 
-class Tunnel(object):
+class Tunnel(object):  # pylint: disable=R0902
+
+    """Creates a TunnelServer over ssh through a local port given a target.
+
+    Similar to `ssh -L`, but instead uses a transport object from paramiko.
+    """
 
     def __init__(self, target_host, target_port,
                  sshclient, tunnel_host='localhost',
                  tunnel_port=0):
-
+        """Constructor."""
         if not isinstance(sshclient, paramiko.SSHClient):
             raise TypeError("'sshclient' must be an instance of "
                             "paramiko.SSHClient.")
@@ -95,26 +129,35 @@ class Tunnel(object):
         tunnel_host, self.tunnel_port = self.address
 
     def get_sshclient_transport(self, sshclient):
+        """Get the sshclient's transport.
+
+        Connect the sshclient, that has been passed in and return its
+        transport.
+        """
         sshclient.connect()
         return sshclient.get_transport()
 
     def serve_forever(self, async=True):
+        """Serve the tunnel forever.
+
+        if async is True, this will be done in a background thread
+        """
         if not async:
             self._tunnel.serve_forever()
-        #self._tunnel_greenthread = greenthread.spawn_n(
-        #    self._tunnel.serve_forever)
-        #eventlet.sleep(1)
-        self._tunnel_thread = threading.Thread(
-            target=self._tunnel.serve_forever)
-        self._tunnel_thread.start()
+        self._tunnel_greenthread = greenthread.spawn_n(
+            self._tunnel.serve_forever)
+        eventlet.sleep(1)
 
     def shutdown(self):
+        """Stop serving the tunnel.
 
+        Also close the socket
+        """
         self._tunnel.shutdown()
         self._tunnel.socket.close()
 
 
-HELP = """\
+HELP = """
 Set up a forward tunnel across an SSH server, using paramiko. A local port
 (given with -p) is forwarded across an SSH session to an address:port from
 the SSH server. This is similar to the openssh -L option.
@@ -122,14 +165,18 @@ the SSH server. This is similar to the openssh -L option.
 
 
 def connect(targethost, targetport, sshclient):
+    """Establish an ssh tunnel.
 
+    Connect to the sshclient that has been passed in and establish a tunnel
+    from the first available local ephemeral port to the targetport on the
+    targethost.
+    """
     return Tunnel(targethost, targetport, sshclient)
 
 
 def get_sshclient(*args, **kwargs):
-
+    """Return a paramiko SSH client."""
     kwargs.setdefault('options', {})
     kwargs['options'].update({'StrictHostKeyChecking': False})
     kwargs['timeout'] = None
     return ssh.connect(*args, **kwargs)
-

@@ -196,13 +196,19 @@ class RemoteShell(ShellMixin):
                         "keyword arguments: %s", kwargs.keys())
 
         if protocol == 'psexec':
-            self._client = pse.connect(address, password=password, username=username,
-                                       port=port, timeout=timeout, gateway=gateway)
+            self._client = pse.connect(address, password=password,
+                                       username=username,
+                                       port=port, timeout=timeout,
+                                       gateway=gateway)
         else:
-            self._client = ssh.connect(address, password=password, username=username,
-                                       private_key=private_key, key_filename=key_filename,
-                                       port=port, timeout=timeout, gateway=gateway,
-                                       options=options, interactive=interactive)
+            self._client = ssh.connect(address, password=password,
+                                       username=username,
+                                       private_key=private_key,
+                                       key_filename=key_filename,
+                                       port=port, timeout=timeout,
+                                       gateway=gateway,
+                                       options=options,
+                                       interactive=interactive)
         self.host = self._client.host
         self.port = self._client.port
 
