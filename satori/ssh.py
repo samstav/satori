@@ -418,11 +418,11 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
             LOG.debug("STDOUT from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
                       unicode(results['stdout'][:5000] + '...',
-                      errors='replace'))
+                              errors='replace'))
             LOG.debug("STDERR from ssh://%s@%s:%d: %s",
                       self.username, self.host, self.port,
                       unicode(results['stderr'][:5000] + '...',
-                      errors='replace'))
+                              errors='replace'))
             exit_code = chan.recv_exit_status()
 
             if with_exit_code:

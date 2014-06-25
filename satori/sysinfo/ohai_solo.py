@@ -83,8 +83,8 @@ def system_info(client):
         output = client.execute("sudo -i unset GEM_CACHE GEM_HOME GEM_PATH "
                                 "&& sudo ohai-solo")
         not_found_msgs = ["command not found", "Could not find ohai"]
-        if any(m in k for m in not_found_msgs
-               for k in list(output.values()) if isinstance(k, six.string_types)):
+        if any(m in str(k) for m in not_found_msgs
+               for k in output.values()):
             LOG.warning("SystemInfoCommandMissing on host: [%s]", client.host)
             raise errors.SystemInfoCommandMissing("ohai-solo missing on %s" %
                                                   client.host)
@@ -116,6 +116,9 @@ def install_remote(client):
                               'System.Net.WebClient).DownloadString('
                               '"http://ohai.rax.io/deploy.ps1"))'
                               '.Invoke()')
+        # TODO(samstav/nico):
+        # check output to ensure that installation was successful
+        # if not, raise SystemInfoCommandInstallFailed
         output = client.execute(powershell_command)
         return output
     else:
