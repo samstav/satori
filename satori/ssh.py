@@ -47,6 +47,7 @@ TTY_REQUIRED = [
     "you must have a tty to run sudo",
     "is not a tty",
     "no tty present",
+    "must be run from a terminal",
 ]
 
 
@@ -100,8 +101,9 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
     # pylint: disable=R0913
     def __init__(self, host, password=None, username="root",
-                 private_key=None, key_filename=None, port=22,
-                 timeout=20, gateway=None, options=None, interactive=False):
+                 root_password=None, private_key=None, key_filename=None,
+                 port=22, timeout=20, gateway=None, options=None,
+                 interactive=False):
         """Create an instance of the SSH class.
 
         :param str host:        The ip address or host name of the server
@@ -109,6 +111,10 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         :param str password:    A password to use for authentication
                                 or for unlocking a private key
         :param username:        The username to authenticate as
+        :param root_password:   root user password to be used if username is
+                                not root. This will use username and password
+                                to login and then 'su' to root using
+                                root_password
         :param private_key:     Private SSH Key string to use
                                 (instead of using a filename)
         :param key_filename:    a private key filename (path)
@@ -130,6 +136,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         self.password = password
         self.host = host
         self.username = username or 'root'
+        self.root_password = root_password
         self.private_key = private_key
         self.key_filename = key_filename
         self.port = port or 22
@@ -139,6 +146,10 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         self.gateway = gateway
         self.sock = None
         self.interactive = interactive
+
+        self.escalation_command = 'sudo -i %s'
+        if self.root_password:
+            self.escalation_command = "su -c '%s'"
 
         if self.gateway:
             if not isinstance(self.gateway, SSH):
@@ -331,7 +342,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
     def _handle_tty_required(self, results, get_pty):
         """Determine whether the result implies a tty request."""
         if any(m in str(k) for m in TTY_REQUIRED for k in results.values()):
-            LOG.info('%s requires TTY for sudo. Using TTY mode.',
+            LOG.info('%s requires TTY for sudo/su. Using TTY mode.',
                      self.host)
             if get_pty is True:  # if this is *already* True
                 raise errors.GetPTYRetryFailure(
@@ -341,7 +352,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
                 return True
         return False
 
-    def _handle_password_prompt(self, stdin, stdout):
+    def _handle_password_prompt(self, stdin, stdout, su_auth=False):
         """Determine whether the remote host is prompting for a password.
 
         Respond to the prompt through stdin if applicable.
@@ -357,7 +368,11 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
                     LOG.warning("%s@%s encountered prompt! of length "
                                 " [%s] {%s}",
                                 self.username, self.host, buflen, prompt)
-                    stdin.write("%s\n" % self.password)
+                    if su_auth:
+                        LOG.warning("Escalating using 'su -'.")
+                        stdin.write("%s\n" % self.root_password)
+                    else:
+                        stdin.write("%s\n" % self.password)
                     stdin.flush()
                     return True
                 else:
@@ -369,7 +384,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         return False
 
     def remote_execute(self, command, with_exit_code=False,
-                       get_pty=False, wd=None, **kwargs):
+                       get_pty=False, wd=None, escalate=False, **kwargs):
         """Execute an ssh command on a remote host.
 
         Tries cert auth first and falls back
@@ -387,29 +402,37 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         :returns: a dict with stdin, stdout,
                   and (optionally) the exit code of the call.
         """
+        if escalate and self.username != 'root':
+            run_command = self.escalation_command % command
+        else:
+            run_command = command
+
         if wd:
             prefix = "cd %s && " % wd
-            command = prefix + command
+            command = prefix + run_command
 
-        LOG.debug("Executing '%s' on ssh://%s@%s:%s.",
-                  command, self.username, self.host, self.port)
         try:
             self.connect()
 
             results = None
             chan = self.get_transport().open_session()
+            su_auth = False
+            if 'su -' in run_command:
+                su_auth = True
+                get_pty = True
             if get_pty:
                 chan.get_pty()
             stdin = chan.makefile('wb')
             stdout = chan.makefile('rb')
             stderr = chan.makefile_stderr('rb')
-            chan.exec_command(command)
+            LOG.debug("Executing '%s' on ssh://%s@%s:%s.",
+                      run_command, self.username, self.host, self.port)
+            chan.exec_command(run_command)
             LOG.debug('ssh://%s@%s:%d responded.', self.username, self.host,
                       self.port)
 
             time.sleep(.25)
-            self._handle_password_prompt(stdin, stdout)
-
+            self._handle_password_prompt(stdin, stdout, su_auth=su_auth)
             results = {
                 'stdout': stdout.read().strip(),
                 'stderr': stderr.read()
@@ -431,7 +454,8 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
             if self._handle_tty_required(results, get_pty):
                 return self.remote_execute(
-                    command, with_exit_code=with_exit_code, get_pty=True)
+                    command, with_exit_code=with_exit_code, get_pty=True,
+                    escalate=escalate)
 
             return results
 
