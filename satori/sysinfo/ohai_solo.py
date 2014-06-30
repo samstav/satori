@@ -80,8 +80,8 @@ def system_info(client):
                 raise errors.SystemInfoNotJson(err)
         return results
     else:
-        output = client.execute("sudo -i unset GEM_CACHE GEM_HOME GEM_PATH "
-                                "&& sudo ohai-solo")
+        command = "unset GEM_CACHE GEM_HOME GEM_PATH && sudo ohai-solo"
+        output = client.execute(command, escalate=True)
         not_found_msgs = ["command not found", "Could not find ohai"]
         if any(m in str(k) for m in not_found_msgs
                for k in output.values()):
@@ -122,17 +122,22 @@ def install_remote(client):
         output = client.execute(powershell_command)
         return output
     else:
+        ohai_cmd = "wget -N http://ohai.rax.io/install.sh"
+        install_ohai_cmd = "bash install.sh"
+        rm_install_cmd = "rm install.sh"
+
         # Download to host
-        command = "sudo wget -N http://ohai.rax.io/install.sh"
-        client.execute(command, wd='/tmp')
+        command = ohai_cmd
+        client.execute(command, wd='/tmp', escalate=True)
 
         # Run install
-        command = "sudo bash install.sh"
-        output = client.execute(command, wd='/tmp', with_exit_code=True)
+        command = install_ohai_cmd
+        output = client.execute(command, wd='/tmp', with_exit_code=True,
+                                escalate=True)
 
         # Be a good citizen and clean up your tmp data
-        command = "sudo rm install.sh"
-        client.execute(command, wd='/tmp')
+        command = rm_install_cmd
+        client.execute(command, wd='/tmp', escalate=True)
 
         # Process install command output
         if output['exit_code'] != 0:
@@ -163,14 +168,14 @@ def remove_remote(client):
     else:
         platform_info = client.platform_info
         if client.is_debian():
-            remove = "sudo dpkg --purge ohai-solo"
+            remove = "dpkg --purge ohai-solo"
         elif client.is_fedora():
-            remove = "sudo yum -y erase ohai-solo"
+            remove = "yum -y erase ohai-solo"
         else:
             raise errors.UnsupportedPlatform("Unknown distro: %s" %
                                              platform_info['dist'])
         command = "%s" % remove
-        output = client.execute(command, wd='/tmp')
+        output = client.execute(command, wd='/tmp', escalate=True)
         return output
 
 
