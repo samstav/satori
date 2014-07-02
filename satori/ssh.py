@@ -384,7 +384,8 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         return False
 
     def remote_execute(self, command, with_exit_code=False,
-                       get_pty=False, wd=None, escalate=False, **kwargs):
+                       get_pty=False, wd=None, escalate=False,
+                       concurrency=True, **kwargs):
         """Execute an ssh command on a remote host.
 
         Tries cert auth first and falls back
@@ -398,6 +399,8 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
                                 executable, so you can't specify the program's
                                 path relative to this argument
         :param get_pty:         Request a pseudo-terminal from the server.
+        :concurrency:           If False, do not run command if it is already
+                                found to running on remote client.
 
         :returns: a dict with stdin, stdout,
                   and (optionally) the exit code of the call.
@@ -411,9 +414,19 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
             prefix = "cd %s && " % wd
             command = prefix + run_command
 
+        if not concurrency:
+            check_cmd = 'ps -ef |grep -v grep|grep -c "%s"' % run_command
+            result = self.remote_execute(
+                check_cmd, with_exit_code=with_exit_code, concurrency=True)
+            if result['stdout'] != '0':
+                raise errors.SatoriDuplicateCommandException("Remote command "
+                    "%s already running and concurrency set to False. "
+                    "Aborting remote execute." % run_command)
+            else:
+                LOG.debug("Remote command %s is not already running. "
+                          "Continuing remote execute.", run_command)
         try:
             self.connect()
-
             results = None
             chan = self.get_transport().open_session()
             su_auth = False

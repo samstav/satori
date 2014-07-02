@@ -46,6 +46,11 @@ class SatoriShellException(SatoriException):
     """Invalid shell parameters."""
 
 
+class SatoriDuplicateCommandException(SatoriException):
+
+    """Shell command execution aborted because command was already running."""
+
+
 class GetPTYRetryFailure(SatoriException):
 
     """Tried to re-run command with get_pty to no avail."""
