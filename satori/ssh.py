@@ -385,7 +385,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
     def remote_execute(self, command, with_exit_code=False,
                        get_pty=False, wd=None, escalate=False,
-                       concurrency=True, **kwargs):
+                       allow_many=True, **kwargs):
         """Execute an ssh command on a remote host.
 
         Tries cert auth first and falls back
@@ -399,8 +399,8 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
                                 executable, so you can't specify the program's
                                 path relative to this argument
         :param get_pty:         Request a pseudo-terminal from the server.
-        :concurrency:           If False, do not run command if it is already
-                                found to running on remote client.
+        :allow_many:            If False, do not run command if it is already
+                                found running on remote client.
 
         :returns: a dict with stdin, stdout,
                   and (optionally) the exit code of the call.
@@ -414,13 +414,13 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
             prefix = "cd %s && " % wd
             command = prefix + run_command
 
-        if not concurrency:
+        if not allow_many:
             check_cmd = 'ps -ef |grep -v grep|grep -c "%s"' % run_command
             result = self.remote_execute(
-                check_cmd, with_exit_code=with_exit_code, concurrency=True)
+                check_cmd, with_exit_code=with_exit_code, allow_many=True)
             if result['stdout'] != '0':
                 raise errors.SatoriDuplicateCommandException("Remote command "
-                    "%s already running and concurrency set to False. "
+                    "%s is already running and allow_many was set to False. "
                     "Aborting remote execute." % run_command)
             else:
                 LOG.debug("Remote command %s is not already running. "
