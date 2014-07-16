@@ -121,10 +121,6 @@ class SMBClient(object):  # pylint: disable=R0902
     def _release(self):
         """Destructor of the PSE class.
 
-        This method will be called when an instance of this class is about to
-        being destroyed. It will try to close the connection (which will clean
-        up on the remote server) and catch the exception that is raised when
-        the connection has already been closed.
         """
         try:
             self.close()
@@ -190,7 +186,6 @@ class SMBClient(object):  # pylint: disable=R0902
         This will create a subprocess.Popen() instance and communicate with it
         via _file_read/_file_write and _process.stdin
         """
-
         try:
             if self._connected and self._process:
                 if self._process.poll() is None:
@@ -226,6 +221,11 @@ class SMBClient(object):  # pylint: disable=R0902
 
         This will cleanly exit psexec (i.e. stop and uninstall the service and
         delete the files)
+
+        This method will be called when an instance of this class is about to
+        being destroyed. It will try to close the connection (which will clean
+        up on the remote server) and catch the exception that is raised when
+        the connection has already been closed.
         """
         try:
             self._process.communicate('exit')

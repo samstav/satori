@@ -28,6 +28,9 @@ import SocketServer
 from eventlet import greenthread
 import paramiko
 
+from satori import ssh
+
+
 LOG = logging.getLogger(__name__)
 
 

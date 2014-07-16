@@ -167,16 +167,22 @@ class PSEXEC:
 
             # We don't wanna deal with timeouts from now on.
             s.setTimeout(100000)
+            svcName = "RackspaceSystemDiscovery"
+            executableName = "RackspaceSystemDiscovery.exe"
             if self.__exeFile is None:
                 svc = remcomsvc.RemComSvc()
-                installService = serviceinstall.ServiceInstall(s, svc)
+                installService = serviceinstall.ServiceInstall(s, svc,
+                                                               svcName,
+                                                               executableName)
             else:
                 try:
                     f = open(self.__exeFile)
                 except Exception as e:
                     print(e)
                     sys.exit(1)
-                installService = serviceinstall.ServiceInstall(s, f)
+                installService = serviceinstall.ServiceInstall(s, f,
+                                                               svcName,
+                                                               executableName)
 
             installService.install()
 
