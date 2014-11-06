@@ -15,13 +15,18 @@
 
 import json
 import logging
+<<<<<<< HEAD
 import xml.etree.ElementTree as ET
+=======
+import time
+>>>>>>> 98e6fd4... detect powershell version
 
 import ipaddress as ipaddress_module
 import six
 
 from satori import bash
 from satori import errors
+from satori import smb
 from satori import utils
 
 LOG = logging.getLogger(__name__)
@@ -68,7 +73,11 @@ def system_info(client, with_install=False):
 
     if client.is_windows():
         powershell_command = 'Get-ComputerConfiguration'
-        output = client.execute(powershell_command)
+        # 'wait' is in ms, wait 2 seconds
+        # (output is large and takes some time to
+        #  begin streaming back through psexec)
+        output = client.execute(powershell_command, prompt_expected=True,
+                                wait=2000)
         unicode_output = "%s" % output
         load_clean_json = lambda output: json.loads(get_json(output))
         last_err = None
@@ -76,10 +85,19 @@ def system_info(client, with_install=False):
             try:
                 return loader(unicode_output)
             except ValueError as err:
+<<<<<<< HEAD
                 last_err = err
         raise errors.SystemInfoInvalid(last_err)
+=======
+                raise errors.SystemInfoNotJson(err)
+            except errors.OutputMissingJson:
+                raise errors.SystemInfoMissingJson(
+                    "System info command returned and does not appear to "
+                    "contain any json-encoded data.")
+        return results
+>>>>>>> 98e6fd4... detect powershell version
     else:
-        raise errors.PlatformNotSupported(
+        raise errors.UnsupportedPlatform(
             "PoSh-Ohai is a Windows-only sytem info provider. "
             "Target platform was %s", client.platform_info['dist'])
 
@@ -96,16 +114,44 @@ def perform_install(client):
     except Exception:
         pass
     if is_windows:
-        powershell_command = ('[scriptblock]::Create((New-Object -TypeName '
-                              'System.Net.WebClient).DownloadString('
-                              '"http://readonly.configdiscovery.rackspace.com'
-                              '/deploy.ps1")).Invoke()')
+        url = 'http://readonly.configdiscovery.rackspace.com/deploy.ps1'
+        path = r'c:\windows\temp\deploy.ps1'
+        # first download the file
+        powershell_command = (r'(New-Object -TypeName '
+                              'System.Net.WebClient).DownloadFile('
+                              '"%s","%s")' % (url, path))
         # check output to ensure that installation was successful
         # if not, raise SystemInfoCommandInstallFailed
         output = client.execute(powershell_command)
-        return output
+        time.sleep(3)
+        # replace with encoded command
+        run_script = (r'powershell -ExecutionPolicy Bypass %s' % path)
+        output = client.execute(run_script, powershell=False)
+        unicode_output = "%s" % output
+        breakup = [k.split() for k in unicode_output.splitlines()]
+        try:
+            breakup = breakup[breakup.index(['Name', 'Value']):]
+        except ValueError:
+            raise errors.PowerShellVersionDetectionException(
+                "Failed to detect PowerShell version from output: %s."
+                % unicode_output)
+        supported, message = None, None
+        for line in breakup:
+            if line[0] == 'Supported' and len(line) == 2:
+                supported = line[1].lower() == 'true'
+            if line[0] == 'PsMessage':
+                message = " ".join(line[1:])
+        if supported is None or message is None:
+            raise errors.PowerShellVersionDetectionException(
+                "Failed to detect PowerShell version from output: %s."
+                % unicode_output)
+        if not supported:
+            raise errors.PowerShellVersionNotSupported(message)
+        else:
+            LOG.info("PoSh-Ohai Installed: %s", message)
+        return unicode_output
     else:
-        raise errors.PlatformNotSupported(
+        raise errors.UnsupportedPlatform(
             "PoSh-Ohai is a Windows-only sytem info provider. "
             "Target platform was %s", client.platform_info['dist'])
 
@@ -129,7 +175,7 @@ def remove_remote(client):
         output = client.execute(powershell_command)
         return output
     else:
-        raise errors.PlatformNotSupported(
+        raise errors.UnsupportedPlatform(
             "PoSh-Ohai is a Windows-only sytem info provider. "
             "Target platform was %s", client.platform_info['dist'])
 
@@ -282,6 +328,7 @@ def parse_xml(ohai_output):
      'platform_family': 'Windows'}
     """
     try:
+<<<<<<< HEAD
         root = ET.XML(ohai_output)
     except ET.ParseError as err:
         raise ValueError(err)
@@ -290,3 +337,11 @@ def parse_xml(ohai_output):
     except IndexError as err:
         raise ValueError('XML had unexpected structure')
     return parse_elem(properties)
+=======
+        first = data.index('{')
+        last = data.rindex('}')
+        return data[first:last + 1]
+    except ValueError as exc:
+        context = {"ValueError": "%s" % exc}
+        raise errors.OutputMissingJson(context)
+>>>>>>> 98e6fd4... detect powershell version

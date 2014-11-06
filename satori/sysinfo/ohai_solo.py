@@ -51,6 +51,16 @@ def get_systeminfo(ipaddress, config, interactive=False):
             return system_info(client)
 
 
+def _check_command_missing(client, output):
+    not_found_msgs = ["command not found", "Could not find ohai"]
+    if any(m in k for m in not_found_msgs
+           for k in list(output.values()) if isinstance(k,
+                                                        six.string_types)):
+        LOG.warning("SystemInfoCommandMissing on host: [%s]", client.host)
+        raise errors.SystemInfoCommandMissing("ohai-solo missing on %s" %
+                                              client.host)
+
+
 def system_info(client, with_install=False, install_dir=None):
     """Run ohai-solo on a remote system and gather the output.
 
@@ -97,8 +107,16 @@ def system_info(client, with_install=False, install_dir=None):
             clean_output = get_json(unicode_output)
             results = json.loads(clean_output)
         except ValueError as exc:
-            raise errors.SystemInfoNotJson(exc)
-    return results
+            try:
+                clean_output = get_json(unicode_output)
+                results = json.loads(clean_output)
+            except Exception as exc:
+                _check_command_missing(client, output)
+                if isinstance(exc, ValueError):
+                    raise errors.SystemInfoNotJson(exc)
+                else:
+                    raise
+        return results
 
 
 def perform_install(client, install_dir=None):
