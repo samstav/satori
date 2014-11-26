@@ -21,6 +21,7 @@ except ImportError:
     import time
 
 import ast
+import atexit
 import base64
 import logging
 import os
@@ -117,6 +118,16 @@ class SMBClient(object):  # pylint: disable=R0902
             LOG.debug("DEBUG: Following arguments passed into PSE constructor "
                       "not used: %s", kwargs.keys())
 
+    def __repr__(self):
+        """Show how object was initialized."""
+        gateway = ''
+        if self.gateway:
+            gateway = ', gateway=%s' % self.gateway
+        return ("SMBClient(%s, password=*****, username=%s, port=%s, "
+                "timeout=%s%s)"
+                % (self._orig_host or self.host, self.username,
+                   self._orig_port or self.port, self.timeout, gateway))
+
     def __del__(self):
         """Destructor of the PSE class."""
         try:
@@ -177,6 +188,15 @@ class SMBClient(object):  # pylint: disable=R0902
         else:
             return False
 
+
+    def _get_subcommand(self):
+        """Return python psexec.py command string."""
+        return self._command % (os.path.dirname(__file__),
+                                self.port,
+                                self.username,
+                                self.password,
+                                self.host)
+
     def connect(self):
         """Attempt a connection using psexec.py.
 
@@ -194,12 +214,10 @@ class SMBClient(object):  # pylint: disable=R0902
                         self.shutdown_tunnel()
             if self.gateway:
                 self.create_tunnel()
-            self._substituted_command = self._command % (
-                os.path.dirname(__file__),
-                self.port,
-                self.username,
-                self.password,
-                self.host)
+
+            self._substituted_command = self._get_subcommand()
+            LOG.info("Creating psexec process to %s running on %s:%s",
+                     self._orig_host or self.host, self.host, self.port)
             self._process = popen.popen(
                 shlex.split(self._substituted_command),
                 stdout=self._file_write,
@@ -208,8 +226,10 @@ class SMBClient(object):  # pylint: disable=R0902
                 close_fds=True,
                 universal_newlines=True,
                 bufsize=-1)
+            atexit.register(self.close)
             while not self._prompt_pattern.findall(output):
                 output += self._get_output()
+                time.sleep(.5)
             self._connected = True
         except Exception:
             msg = "Failed to connect to host %s over smb" % self.host
@@ -231,26 +251,35 @@ class SMBClient(object):  # pylint: disable=R0902
         the connection has already been closed.
         """
         try:
-            self._process.communicate('exit')
+            self._process.communicate('exit\n')
+        except ValueError:
+            LOG.debug("File descriptor already closed.")
         except Exception as exc:
             LOG.warning("ERROR: Failed to close %s: %s", self, str(exc))
             del exc
+        else:
+            LOG.debug("Sent 'exit' to remote machine.")
+
         try:
             if self.gateway:
                 self.shutdown_tunnel()
                 self.gateway.close()
+                LOG.debug("Closed tunnel and gateway.")
         except Exception as exc:
             LOG.warning("ERROR: Failed to close gateway %s: %s", self.gateway,
                         str(exc))
             del exc
         finally:
+            # ensure that the psexec subprocess dies
             try:
                 self._process.kill()
-            except OSError:
-                LOG.exception("Tried killing psexec subprocess.")
+            except (OSError, AttributeError):
+                LOG.debug("Psexec subprocess is already dead.")
+            else:
+                LOG.debug("Killed psexec subprocess.")
 
-    def remote_execute(self, command, powershell=True, retry=1,
-                       prompt_expected=False, wait=500, **kwargs):
+    def remote_execute(self, command, powershell=True, retry=0,
+                       prompt_expected=True, wait=700, **kwargs):
         """Execute a command on a remote host.
 
         :param command:         Command to be executed
@@ -271,18 +300,17 @@ class SMBClient(object):  # pylint: disable=R0902
         if powershell:
             command = ('powershell -EncodedCommand %s\n' %
                        _posh_encode(command))
-        self._file_read.flush()
-        self._file_read.read()
         LOG.info("Executing command: %s", command)
-        self._process.stdin.write('\n%s\n' % command)
+        self._process.stdin.write('\n%s\n\r\n' % command)
         self._process.stdin.flush()
         try:
             output = self._get_output(prompt_expected=prompt_expected,
                                       wait=wait)
             output = re.compile(
                 r'^[a-zA-Z]:\\.*>.*$', re.MULTILINE).sub('', output)
-            LOG.debug("Stdout produced: %s", output)
-            output = "\n".join(output.splitlines()[:-1]).strip()
+            LOG.debug("Final ouput from command [%s] produced: %s",
+                      original_command, output)
+            output = "\n".join(output.splitlines()).strip()
             return output
         except Exception:
             LOG.error("Error while reading output from command %s on %s",
@@ -290,7 +318,8 @@ class SMBClient(object):  # pylint: disable=R0902
             if not retry:
                 raise
             else:
-                return self.remote_execute(original_command, powershell=powershell,
+                return self.remote_execute(original_command,
+                                           powershell=powershell,
                                            retry=retry - 1)
 
     def _handle_output(self, output):
@@ -301,8 +330,6 @@ class SMBClient(object):  # pylint: disable=R0902
         """
         if self._process.poll() is not None:
             if self._process.returncode == 0:
-                LOG.info("Command returned through smb.py"
-                         " with exit status 0.")
                 return True
             if "The attempted logon is invalid" in output:
                 msg = [k for k in output.splitlines() if k][-1].strip()
@@ -322,7 +349,7 @@ class SMBClient(object):  # pylint: disable=R0902
                                       % (self._process.pid,
                                          self._process.poll(), output))
 
-    def _get_output(self, prompt_expected=False, wait=500):
+    def _get_output(self, prompt_expected=True, wait=700):
         """Retrieve output from _process.
 
         This method will wait until output is started to be received and then
@@ -336,7 +363,6 @@ class SMBClient(object):  # pylint: disable=R0902
         """
         tmp_out = ''
         while tmp_out == '':
-            self._file_read.seek(0, 1)
             tmp_out += self._file_read.read()
             # leave loop if underlying process has a return code
             # obviously meaning that it has terminated
@@ -347,10 +373,13 @@ class SMBClient(object):  # pylint: disable=R0902
             LOG.debug("Loop 1 - stdout read: %s", tmp_out)
 
         stdout = tmp_out
-        while (tmp_out != '' or
-               (not self._prompt_pattern.findall(stdout) and
-                prompt_expected)):
-            self._file_read.seek(0, 1)
+        while tmp_out != '' or prompt_expected:
+            if prompt_expected and self._prompt_pattern.findall(stdout):
+                LOG.debug("Prompt was found in output and was expected."
+                          "Prompt: %s",
+                          ' AND '.join(self._prompt_pattern.findall(stdout)))
+                break
+            LOG.debug("Still looking for output, tmp_out: %s", tmp_out)
             tmp_out = self._file_read.read()
             stdout += tmp_out
             # leave loop if underlying process has a return code
@@ -359,6 +388,8 @@ class SMBClient(object):  # pylint: disable=R0902
                 break
             time.sleep(float(wait) / 1000)
         else:
+            LOG.debug("Leaving get_output because no more output "
+                      "is being produced. Consider increasing 'wait'.")
             LOG.debug("Loop 2 - stdout read: %s", tmp_out)
 
         self._output += stdout

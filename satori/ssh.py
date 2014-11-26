@@ -170,6 +170,25 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
 
         super(SSH, self).__init__()
 
+    def __repr__(self):
+        """Show how object was initialized."""
+        auth = ''
+        if self.password:
+            auth = " password=*****,"
+        elif self.private_key:
+            auth = " private_key=*****,"
+        elif self.key_filename:
+            auth = " key_filename=*****,"
+        if self.root_password:
+            auth += " root_password=*****,"
+        gateway = ''
+        if self.gateway:
+            gateway = ', gateway=%s' % self.gateway
+        return ("SSH(%s, username=%s,%s port=%s, timeout=%s, options=%s, "
+                "interactive=%s%s)"
+                % (self.host, self.username, auth, self.port, self.timeout,
+                   self.options, self.interactive, gateway))
+
     def __del__(self):
         """Destructor to close the connection."""
         self.close()
