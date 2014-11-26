@@ -160,6 +160,7 @@ class PSEXEC:
         global dialect
         dialect = rpctransport.get_smb_connection().getDialect()
 
+        retCode = None
         try:
             unInstalled = False
             s = rpctransport.get_smb_connection()
@@ -208,7 +209,6 @@ class PSEXEC:
             global LastDataSent
             LastDataSent = ''
 
-            retCode = None
             # Create the pipes threads
             stdin_pipe = RemoteStdInPipe(rpctransport,
                                          '\%s%s%d' % (RemComSTDIN,

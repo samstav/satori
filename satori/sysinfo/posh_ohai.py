@@ -74,8 +74,7 @@ def system_info(client, with_install=False):
         # 'wait' is in ms, wait 2 seconds
         # (output is large and takes some time to
         #  begin streaming back through psexec)
-        output = client.execute(powershell_command, prompt_expected=True,
-                                wait=2000)
+        output = client.execute(powershell_command, wait=3000)
         unicode_output = "%s" % output
         try:
             results = json.loads(unicode_output)
@@ -116,19 +115,19 @@ def perform_install(client):
                               '"%s","%s")' % (url, path))
         # check output to ensure that installation was successful
         # if not, raise SystemInfoCommandInstallFailed
-        output = client.execute(powershell_command)
+        output = client.execute(powershell_command, wait=10000)
         time.sleep(3)
         # replace with encoded command
         run_script = (r'powershell -ExecutionPolicy Bypass %s' % path)
-        output = client.execute(run_script, powershell=False)
+        output = client.execute(run_script, powershell=False, wait=5000)
         unicode_output = "%s" % output
         breakup = [k.split() for k in unicode_output.splitlines()]
         try:
             breakup = breakup[breakup.index(['Name', 'Value']):]
-        except ValueError:
+        except ValueError as err:
             raise errors.PowerShellVersionDetectionException(
-                "Failed to detect PowerShell version from output: %s."
-                % unicode_output)
+                "Failed to detect PowerShell version from output: %s. | %s"
+                % (unicode_output, "ValueError: {err}".format(err=str(err))))
         supported, message = None, None
         for line in breakup:
             if line[0] == 'Supported' and len(line) == 2:
