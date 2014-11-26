@@ -25,7 +25,6 @@ try:
 except ImportError:
     import threading
     import time
-    pass
 
 import logging
 import select
@@ -40,20 +39,26 @@ import paramiko
 LOG = logging.getLogger(__name__)
 
 
-class TunnelServer(SocketServer.ThreadingTCPServer):
-
-    """Serve on a local ephemeral port.
-
-    Clients will connect to that port/server.
-    """
-
-    daemon_threads = True
-    allow_reuse_address = True
-
-
 class TunnelHandler(SocketServer.BaseRequestHandler):
 
     """Handle forwarding of packets."""
+
+    def get_tunnel_channel(self):
+        """Return the channel object from the ssh tunnel."""
+        chan = self.server.ssh_transport.open_channel(
+            'direct-tcpip', self.server.target_address,
+            self.request.getpeername())
+        if chan is None:
+            LOG.error('Incoming request to %r was rejected '
+                      'by the SSH server.',
+                      self.server.target_address)
+            self.server.shutdown_request(self.request)
+            return
+
+        LOG.info("Local tunnel connected! Tunnel open %r -> %r -> %r",
+                 self.request.getpeername(), chan.getpeername(),
+                 self.server.target_address)
+        return chan
 
     def handle(self):
         """Do all the work required to service a request.
@@ -64,44 +69,74 @@ class TunnelHandler(SocketServer.BaseRequestHandler):
 
         This implementation will forward packets.
         """
+        chan = None
+        peername = None
         try:
-            chan = self.ssh_transport.open_channel('direct-tcpip',
-                                                   self.target_address,
-                                                   self.request.getpeername())
-        except Exception as exc:
-            LOG.error('Incoming request to %s:%s failed',
-                      self.target_address[0],
-                      self.target_address[1],
-                      exc_info=exc)
-            return
-        if chan is None:
-            LOG.error('Incoming request to %s:%s was rejected '
-                      'by the SSH server.',
-                      self.target_address[0],
-                      self.target_address[1])
-            return
-
-        while True:
-            r, w, x = select.select([self.request, chan], [], [])
-            if self.request in r:
-                data = self.request.recv(1024)
-                if len(data) == 0:
-                    break
-                chan.send(data)
-            if chan in r:
-                data = chan.recv(1024)
-                if len(data) == 0:
-                    break
-                self.request.send(data)
-
-        try:
-            peername = None
-            peername = str(self.request.getpeername())
+            peername = self.request.getpeername()
         except socket.error as exc:
-            LOG.warning("Couldn't fetch peername.", exc_info=exc)
-        chan.close()
-        self.request.close()
-        LOG.info("Tunnel closed from '%s'", peername or 'unnamed peer')
+            pass
+
+        try:
+            chan = self.get_tunnel_channel()
+            while True:
+                try:
+                    ready = select.select([self.request, chan], [], [])[0]
+                    if self.request in ready:
+                        data = self.request.recv(1024)
+                        if len(data) == 0:
+                            break
+                        chan.send(data)
+                    if chan in ready:
+                        data = chan.recv(1024)
+                        if len(data) == 0:
+                            break
+                        self.request.send(data)
+                except Exception as err:
+                    LOG.error("Error in handle() in tunnel.py.",
+                              exc_info=err)
+                    raise
+
+            LOG.info("Tunnel closed from '%r'", peername or 'unnamed peer')
+
+        except Exception as exc:
+            LOG.error('Incoming request (from %r to %r) failed',
+                      peername or 'unknown', self.server.target_address,
+                      exc_info=exc)
+            if chan and (chan.active or not chan.closed):
+                chan.close()
+        finally:
+            self.server.shutdown_request(self.request)
+
+
+class TunnelServer(SocketServer.ThreadingTCPServer):
+
+    """Serve on a local ephemeral port.
+
+    Clients will connect to that port/server.
+    """
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, server_address, RequestHandlerClass,
+                 bind_and_activate=True, ssh_transport=None,
+                 target_address=None):
+        """Initialize socket server preparing to forward."""
+        if not RequestHandlerClass:
+            RequestHandlerClass = TunnelHandler
+        if not issubclass(RequestHandlerClass, TunnelHandler):
+            raise ValueError("TunnelServer's handler class must "
+                             "be TunnelHandler.")
+
+        if not isinstance(ssh_transport, paramiko.transport.Transport):
+            raise ValueError("TunnelServer's ssh_transport must "
+                             "be one of paramiko.transport.Transport")
+        self.ssh_transport = ssh_transport
+        self.target_address = target_address
+
+        SocketServer.ThreadingTCPServer.__init__(
+            self, server_address, RequestHandlerClass,
+            bind_and_activate=bind_and_activate)
 
 
 class Tunnel(object):  # pylint: disable=R0902
@@ -124,38 +159,38 @@ class Tunnel(object):  # pylint: disable=R0902
         self._tunnel = None
         self._tunnel_thread = None
         self.sshclient = sshclient
-        self._ssh_transport = self.get_sshclient_transport(
-            self.sshclient)
+        self._ssh_transport = self.get_sshclient_transport()
 
-        TunnelHandler.target_address = self.target_address
-        TunnelHandler.ssh_transport = self._ssh_transport
+        self._tunnel = TunnelServer(self.address, TunnelHandler,
+                                    ssh_transport=self._ssh_transport,
+                                    target_address=self.target_address)
 
-        self._tunnel = TunnelServer(self.address, TunnelHandler)
         # reset attribute to the port it has actually been set to
         self.address = self._tunnel.server_address
         tunnel_host, self.tunnel_port = self.address
 
-    def get_sshclient_transport(self, sshclient):
-        """Get the sshclient's transport.
+    def get_sshclient_transport(self):
+        """Get this instance's sshclient transport.
 
         Connect the sshclient, that has been passed in and return its
         transport.
         """
-        sshclient.connect()
-        return sshclient.get_transport()
+        self.sshclient.connect()
+        return self.sshclient.get_transport()
 
     def serve_forever(self, async=True):
         """Serve the tunnel forever.
 
         if async is True, this will be done in a background thread
         """
+        LOG.info("Running tunnel from %r to %r",
+                 self.address, self.target_address)
         if not async:
             self._tunnel.serve_forever()
         else:
             self._tunnel_thread = threading.Thread(
                 target=self._tunnel.serve_forever)
             self._tunnel_thread.start()
-            # cooperative yield
             time.sleep(0)
 
     def shutdown(self):
