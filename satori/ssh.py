@@ -132,7 +132,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         :param port:            tcp/ip port to use (defaults to 22)
         :param float timeout:   an optional timeout (in seconds) for the
                                 TCP connection
-        :param socket gateway:    an existing SSH instance to use
+        :param socket gateway:  an existing SSH instance to use
                                 for proxying
         :param dict options:    A dictionary used to set ssh options
                                 (when proxying).
@@ -157,6 +157,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
         self.gateway = gateway
         self.sock = None
         self.interactive = interactive
+        self._tty_required = False
 
         self.escalation_command = 'sudo -i %s'
         if self.root_password:
@@ -474,7 +475,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
             if 'su -' in run_command:
                 su_auth = True
                 get_pty = True
-            if get_pty:
+            if get_pty or self._tty_required:
                 chan.get_pty()
             stdin = chan.makefile('wb')
             stdout = chan.makefile('rb')
@@ -507,6 +508,7 @@ class SSH(paramiko.SSHClient):  # pylint: disable=R0902
                 chan.close()
 
             if self._handle_tty_required(results, get_pty):
+                self._tty_required = True
                 return self.remote_execute(
                     command, with_exit_code=with_exit_code, get_pty=True,
                     cwd=cwd, keepalive=keepalive, escalate=escalate,
