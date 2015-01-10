@@ -10,23 +10,18 @@
 #   License for the specific language governing permissions and limitations
 #   under the License.
 #
-# pylint: disable=W0622
 """PoSh-Ohai Data Plane Discovery Module."""
 
 import json
 import logging
-<<<<<<< HEAD
 import xml.etree.ElementTree as ET
-=======
 import time
->>>>>>> 98e6fd4... detect powershell version
 
 import ipaddress as ipaddress_module
 import six
 
 from satori import bash
 from satori import errors
-from satori import smb
 from satori import utils
 
 LOG = logging.getLogger(__name__)
@@ -49,10 +44,9 @@ def get_systeminfo(ipaddress, config, interactive=False):
         return system_info(client)
 
     else:
-        with bash.RemoteShell(
-                ipaddress, username=config['host_username'],
-                private_key=config['host_key'],
-                interactive=interactive) as client:
+        with bash.RemoteShell(ipaddress, username=config['host_username'],
+                              private_key=config['host_key'],
+                              interactive=interactive) as client:
             perform_install(client)
             return system_info(client)
 
@@ -77,24 +71,15 @@ def system_info(client, with_install=False):
         # (output is large and takes some time to
         #  begin streaming back through psexec)
         output = client.execute(powershell_command, wait=3000)
-        unicode_output = "%s" % output
-        load_clean_json = lambda output: json.loads(get_json(output))
+        unicode_output = unicode(output, errors='ignore')
+        load_clean_json = lambda output: json.loads(get_json(output), strict=False)
         last_err = None
         for loader in json.loads, parse_xml, load_clean_json:
             try:
                 return loader(unicode_output)
-            except ValueError as err:
-<<<<<<< HEAD
+            except (ValueError, errors.OutputMissingJson) as err:
                 last_err = err
         raise errors.SystemInfoInvalid(last_err)
-=======
-                raise errors.SystemInfoNotJson(err)
-            except errors.OutputMissingJson:
-                raise errors.SystemInfoMissingJson(
-                    "System info command returned and does not appear to "
-                    "contain any json-encoded data.")
-        return results
->>>>>>> 98e6fd4... detect powershell version
     else:
         raise errors.UnsupportedPlatform(
             "PoSh-Ohai is a Windows-only sytem info provider. "
@@ -327,7 +312,6 @@ def parse_xml(ohai_output):
      'platform_family': 'Windows'}
     """
     try:
-<<<<<<< HEAD
         root = ET.XML(ohai_output)
     except ET.ParseError as err:
         raise ValueError(err)
@@ -336,11 +320,3 @@ def parse_xml(ohai_output):
     except IndexError as err:
         raise ValueError('XML had unexpected structure')
     return parse_elem(properties)
-=======
-        first = data.index('{')
-        last = data.rindex('}')
-        return data[first:last + 1]
-    except ValueError as exc:
-        context = {"ValueError": "%s" % exc}
-        raise errors.OutputMissingJson(context)
->>>>>>> 98e6fd4... detect powershell version

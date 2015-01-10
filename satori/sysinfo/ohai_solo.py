@@ -10,7 +10,6 @@
 #   License for the specific language governing permissions and limitations
 #   under the License.
 #
-# pylint: disable=W0622
 """Ohai Solo Data Plane Discovery Module."""
 
 import json
@@ -43,15 +42,15 @@ def get_systeminfo(ipaddress, config, interactive=False):
         return system_info(client)
 
     else:
-        with bash.RemoteShell(
-                ipaddress, username=config['host_username'],
-                private_key=config['host_key'],
-                interactive=interactive) as client:
+        with bash.RemoteShell(ipaddress, username=config['host_username'],
+                              private_key=config['host_key'],
+                              interactive=interactive) as client:
             perform_install(client)
             return system_info(client)
 
 
 def _check_command_missing(client, output):
+    """Determine if output is indicating that the executable is missing."""
     not_found_msgs = ["command not found", "Could not find ohai"]
     if any(m in k for m in not_found_msgs
            for k in list(output.values()) if isinstance(k,
@@ -109,13 +108,18 @@ def system_info(client, with_install=False, install_dir=None):
         except ValueError as exc:
             try:
                 clean_output = get_json(unicode_output)
-                results = json.loads(clean_output)
-            except Exception as exc:
+                results = json.loads(clean_output, strict=False)
+            except ValueError as err:
                 _check_command_missing(client, output)
-                if isinstance(exc, ValueError):
-                    raise errors.SystemInfoNotJson(exc)
-                else:
-                    raise
+                cleaner_output = unicode(unicode_output, errors='ignore')
+                try:
+                    results = json.loads(cleaner_output, strict=False)
+                except ValueError as err:
+                    raise errors.SystemInfoNotJson(err)
+            except errors.OutputMissingJson:
+                raise errors.SystemInfoMissingJson(
+                    "System info command returned and does not appear to "
+                    "contain any json-encoded data.")
         return results
 
 
@@ -164,8 +168,10 @@ def perform_install(client, install_dir=None):
 
         # Process install command output
         if install_output['exit_code'] != 0:
+            stderr = install_output['stderr'].strip()[:256]
+            stdout = install_output['stdout'].strip()[:256]
             raise errors.SystemInfoCommandInstallFailed(
-                install_output['stderr'][:256])
+                "stderr: %s  stdout: %s" % (stderr, stdout))
         else:
             return install_output
 
