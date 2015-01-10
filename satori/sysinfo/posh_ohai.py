@@ -10,7 +10,6 @@
 #   License for the specific language governing permissions and limitations
 #   under the License.
 #
-# pylint: disable=W0622
 """PoSh-Ohai Data Plane Discovery Module."""
 
 import json
@@ -22,7 +21,6 @@ import six
 
 from satori import bash
 from satori import errors
-from satori import smb
 from satori import utils
 
 LOG = logging.getLogger(__name__)
@@ -45,10 +43,9 @@ def get_systeminfo(ipaddress, config, interactive=False):
         return system_info(client)
 
     else:
-        with bash.RemoteShell(
-                ipaddress, username=config['host_username'],
-                private_key=config['host_key'],
-                interactive=interactive) as client:
+        with bash.RemoteShell(ipaddress, username=config['host_username'],
+                              private_key=config['host_key'],
+                              interactive=interactive) as client:
             perform_install(client)
             return system_info(client)
 
@@ -81,9 +78,13 @@ def system_info(client, with_install=False):
         except ValueError:
             try:
                 clean_output = get_json(unicode_output)
-                results = json.loads(clean_output)
+                results = json.loads(clean_output, strict=False)
             except ValueError as err:
-                raise errors.SystemInfoNotJson(err)
+                cleaner_output = unicode(unicode_output, errors='ignore')
+                try:
+                    results = json.loads(cleaner_output, strict=False)
+                except ValueError as err:
+                    raise errors.SystemInfoNotJson(err)
             except errors.OutputMissingJson:
                 raise errors.SystemInfoMissingJson(
                     "System info command returned and does not appear to "
